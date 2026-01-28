@@ -3,7 +3,7 @@ name: Daily Legal Question Generator
 on:
   schedule:
     # 10:00 PM UTC every day. 
-    # Note: Adjust the hour if you meant 10 PM in a specific timezone (e.g., IST is UTC+5:30)
+    # To run at 10 PM IST (which is UTC+5:30), use '30 16 * * *'
     - cron: '0 22 * * *'
   workflow_dispatch: # Allows you to run it manually for testing
 
@@ -11,14 +11,18 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    permissions:
+      # Required to allow the bot to commit changes back to the repo
+      contents: write
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-core: '3.10'
+          python-version: '3.10'
 
       - name: Install dependencies
         run: |
@@ -30,10 +34,15 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python main.py
 
-      - name: Commit and Push results (Optional)
+      - name: Commit and Push results
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add daily_questions.md
-          git commit -m "Update daily legal questions [skip ci]" || echo "No changes to commit"
-          git push
+          # Only commit if there are actual changes to the file
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update daily legal questions [skip ci]"
+            git push
+          fi
