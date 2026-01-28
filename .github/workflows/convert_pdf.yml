@@ -1,0 +1,40 @@
+name: Convert PDF to Q&A
+
+on:
+push:
+paths:
+- 'judgments/**.pdf'
+workflow_dispatch:
+
+jobs:
+process-judgments:
+runs-on: ubuntu-latest
+permissions:
+contents: write
+steps:
+- name: Checkout code
+uses: actions/checkout@v4
+with:
+fetch-depth: 0
+
+  - name: Set up Python
+    uses: actions/setup-python@v4
+    with:
+      python-version: '3.10'
+
+  - name: Install dependencies
+    run: |
+      pip install google-generativeai
+
+  - name: Run Conversion Script
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    run: python process_judgments.py
+
+  - name: Commit and Push changes
+    run: |
+      git config --local user.email "action@github.com"
+      git config --local user.name "GitHub Action"
+      git add cases.md
+      git commit -m "Auto-update cases.md with new judgment Q&A" || echo "No changes to commit"
+      git push
