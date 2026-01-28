@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: true # Ensures the token is available for the push
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -38,11 +40,20 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Check if the file was actually created
+          if [ ! -f daily_questions.md ]; then
+            echo "File daily_questions.md not found, skipping commit."
+            exit 0
+          fi
+
           git add daily_questions.md
-          # Only commit if there are actual changes to the file
+          
+          # Only commit if there are actual changes
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
             git commit -m "Update daily legal questions [skip ci]"
-            git push
+            # Use the GITHUB_TOKEN to push back to the repo
+            git push origin HEAD:${{ github.ref }}
           fi
