@@ -238,14 +238,22 @@
 
         // Initialize Auth and Data
         async function init() {
-            try {
-                // Auth first (Rule 3)
-                if (initialToken) {
-                    await signInWithCustomToken(auth, initialToken);
-                } else {
-                    await signInAnonymously(auth);
-                }
+            // Optimization: Start fetching data and auth in parallel
+            const dataPromise = fetch(DATA_URL).then(res => {
+                if (!res.ok) throw new Error('Network Failure');
+                return res.text();
+            });
 
+            const authPromise = (async () => {
+                if (initialToken) {
+                    return signInWithCustomToken(auth, initialToken);
+                } else {
+                    return signInAnonymously(auth);
+                }
+            })();
+
+            try {
+                // Listen for auth changes separately
                 onAuthStateChanged(auth, (user) => {
                     currentUser = user;
                     if (user) {
@@ -253,12 +261,16 @@
                     }
                 });
 
-                const response = await fetch(DATA_URL);
-                if (!response.ok) throw new Error('Network Failure');
-                const text = await response.text();
+                // Wait for markdown data first to show content ASAP
+                const text = await dataPromise;
                 parseQuestions(text);
+                
+                // Hide loader immediately once content is ready
                 document.getElementById('loading-state').classList.add('hidden');
                 updateUI();
+
+                // Ensure auth is also handled
+                await authPromise;
             } catch (err) {
                 document.getElementById('loading-state').classList.add('hidden');
                 document.getElementById('error-state').classList.remove('hidden');
@@ -271,11 +283,9 @@
             
             const statusCol = collection(db, 'artifacts', appId, 'users', userId, 'readStatus');
             
-            // Rule 2: Simple query
             unsubFirestore = onSnapshot(statusCol, (snapshot) => {
                 const readIds = new Set();
                 snapshot.forEach(doc => {
-                    // We map the stored data back to the current local indices
                     const data = doc.data();
                     if (typeof data.index === 'number') {
                         readIds.add(data.index);
