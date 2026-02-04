@@ -129,6 +129,14 @@
         #sync-indicator {
             transition: opacity 0.5s ease;
         }
+
+        @keyframes infinite-scroll {
+            from { transform: translateX(-100%); }
+            to { transform: translateX(300%); }
+        }
+        .animate-infinite-scroll {
+            animation: infinite-scroll 1.5s infinite linear;
+        }
     </style>
 </head>
 <body class="selection:bg-slate-900 selection:text-white">
@@ -166,7 +174,7 @@
             </div>
         </div>
 
-        <!-- Minimal Loading Bar (Visible only during initial burst) -->
+        <!-- Minimal Loading Bar -->
         <div id="loading-state" class="h-0.5 w-full bg-gray-50 overflow-hidden mb-8">
             <div class="bg-black h-full animate-infinite-scroll w-1/3"></div>
         </div>
@@ -195,22 +203,13 @@
         </div>
     </footer>
 
-    <style>
-        @keyframes infinite-scroll {
-            from { transform: translateX(-100%); }
-            to { transform: translateX(300%); }
-        }
-        .animate-infinite-scroll {
-            animation: infinite-scroll 1.5s infinite linear;
-        }
-    </style>
-
     <!-- Firebase Scripts -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, deleteDoc, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
+        // Environment globals
         const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         const initialToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
@@ -221,7 +220,7 @@
 
         let currentUser = null;
         let allQuestions = [];
-        let readStatus = new Set();
+        let readStatusFingerprints = new Set(); // Using text fingerprints for stability
         let unsubFirestore = null;
 
         const DATA_URL = 'https://raw.githubusercontent.com/citecase/q/refs/heads/main/q.md';
@@ -230,30 +229,36 @@
         renderer.link = (href, title, text) => text || '';
         marked.setOptions({ renderer });
 
-        window.toggleReadStatus = async (index) => {
-            if (!currentUser) return;
-            const q = allQuestions[index];
-            if (!q) return;
+        // Generate a stable fingerprint from question text
+        const getFingerprint = (text) => {
+            // Take first 100 chars, remove special characters, and hash slightly for a clean ID
+            const base = text.trim().substring(0, 100).replace(/[^a-zA-Z0-9]/g, '');
+            return base || 'empty_question';
+        };
 
-            const qId = btoa(q.raw.substring(0, 50)).replace(/[/+=]/g, '_');
-            const docRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'readStatus', qId);
+        window.toggleReadStatus = async (fingerprint) => {
+            if (!currentUser) return;
+            
+            const docRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'readStatus', fingerprint);
 
             try {
-                if (readStatus.has(index)) {
+                if (readStatusFingerprints.has(fingerprint)) {
                     await deleteDoc(docRef);
                 } else {
-                    await setDoc(docRef, { timestamp: Date.now(), index: index });
+                    await setDoc(docRef, { 
+                        timestamp: Date.now(),
+                        fingerprint: fingerprint 
+                    });
                 }
             } catch (e) {
-                console.error("Read status update failed", e);
+                console.error("Sync write failed", e);
             }
         };
 
         async function init() {
-            // Speed Strategy: Start data fetch immediately. Do NOT wait for Auth to show content.
+            // Speed Optimization: Parallelize data fetch and auth
             const dataPromise = fetch(DATA_URL).then(res => res.text());
             
-            // Background Auth
             const authAction = (async () => {
                 try {
                     if (initialToken) {
@@ -279,37 +284,37 @@
                 const text = await dataPromise;
                 parseQuestions(text);
                 
-                // Content is ready, show it now
+                // Content ready
                 document.getElementById('loading-state').style.display = 'none';
                 updateUI();
                 
-                // Auth completes later in the background
                 await authAction;
             } catch (err) {
                 document.getElementById('loading-state').style.display = 'none';
                 document.getElementById('error-state').classList.remove('hidden');
-                document.getElementById('error-message').textContent = `Load Error: ${err.message}`;
+                document.getElementById('error-message').textContent = `System Load Error: ${err.message}`;
             }
         }
 
         function setupFirestoreListener(userId) {
             if (unsubFirestore) unsubFirestore();
+            
             const statusCol = collection(db, 'artifacts', appId, 'users', userId, 'readStatus');
             
             unsubFirestore = onSnapshot(statusCol, (snapshot) => {
-                const readIds = new Set();
+                const fingerprints = new Set();
                 snapshot.forEach(doc => {
-                    const data = doc.data();
-                    if (typeof data.index === 'number') readIds.add(data.index);
+                    // Use the document ID itself as the fingerprint
+                    fingerprints.add(doc.id);
                 });
-                readStatus = readIds;
+                readStatusFingerprints = fingerprints;
                 updateUI();
                 
-                // Turn off pulse once sync is finished
+                // Visual sync feedback
                 document.getElementById('sync-indicator').classList.remove('animate-pulse');
                 document.getElementById('sync-indicator').classList.replace('bg-blue-400', 'bg-green-500');
             }, (error) => {
-                console.error("Sync error:", error);
+                console.error("Sync connection lost", error);
                 document.getElementById('sync-indicator').classList.replace('bg-blue-400', 'bg-red-400');
             });
         }
@@ -327,6 +332,7 @@
                 return {
                     id: index,
                     raw: section,
+                    fingerprint: getFingerprint(cleanContent),
                     url: url,
                     html: marked.parse(cleanContent)
                 };
@@ -351,8 +357,7 @@
             } else {
                 emptyState.classList.add('hidden');
                 container.innerHTML = filtered.map((q) => {
-                    const originalIdx = allQuestions.indexOf(q);
-                    const isRead = readStatus.has(originalIdx);
+                    const isRead = readStatusFingerprints.has(q.fingerprint);
                     
                     const actionButtons = `
                         ${q.url ? `
@@ -360,7 +365,7 @@
                             Read CaseLaw
                             <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
                         </a>` : ''}
-                        <button onclick="toggleReadStatus(${originalIdx})" class="action-button status-button ${isRead ? 'active' : ''}">
+                        <button onclick="toggleReadStatus('${q.fingerprint}')" class="action-button status-button ${isRead ? 'active' : ''}">
                             ${isRead ? 'Read' : 'Read?'}
                             ${isRead ? 
                                 `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>` : 
