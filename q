@@ -1,0 +1,1 @@
+Whether a Court can entertain an application under Section 29A(5) of the Arbitration and Conciliation Act, 1996 to extend the mandate of the arbitrator(s) for making the award even after an ‘award’ is rendered, though after the expiry of the statutory limit of eighteen-month period? Read Answer here
