@@ -20,7 +20,6 @@
         /* Legal Typography */
         .legal-prose {
             font-family: 'Lora', serif;
-            transition: opacity 0.3s ease;
         }
         
         .prose p { 
@@ -56,11 +55,6 @@
             border-bottom: 1px solid #f3f4f6;
             padding-bottom: 1.5rem;
             margin-bottom: 1.5rem;
-            transition: all 0.3s ease;
-        }
-
-        .entry-container.is-read {
-            opacity: 0.5;
         }
 
         .entry-container:last-child {
@@ -95,24 +89,6 @@
             transform: translateY(-1px);
         }
 
-        /* Toggle Button States */
-        .status-button {
-            background-color: #ffffff;
-            color: #999;
-            border: 1px solid #e5e7eb;
-        }
-
-        .status-button:hover {
-            border-color: #000;
-            color: #000;
-        }
-
-        .status-button.active {
-            background-color: #f0fdf4;
-            color: #166534;
-            border-color: #bbf7d0;
-        }
-
         .search-container {
             background: #fff;
             border: 1px solid #e5e7eb;
@@ -123,11 +99,6 @@
         .search-container:focus-within {
             border-color: #000;
             box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-        }
-
-        /* Sync Indicator */
-        #sync-indicator {
-            transition: opacity 0.5s ease;
         }
 
         @keyframes infinite-scroll {
@@ -152,10 +123,7 @@
                 <span class="text-[10px] uppercase tracking-[0.4em] font-black text-gray-400">
                     Questions Of Law
                 </span>
-                <div class="flex items-center gap-2 mt-1">
-                    <p id="result-count" class="text-[9px] font-bold text-gray-300 uppercase tracking-widest italic"></p>
-                    <div id="sync-indicator" class="w-1.5 h-1.5 rounded-full bg-gray-200 animate-pulse"></div>
-                </div>
+                <p id="result-count" class="text-[9px] font-bold text-gray-300 uppercase tracking-widest italic mt-1"></p>
             </div>
         </div>
     </header>
@@ -179,14 +147,6 @@
             <div class="bg-black h-full animate-infinite-scroll w-1/3"></div>
         </div>
 
-        <!-- Error State -->
-        <div id="error-state" class="hidden py-16 text-center bg-red-50/50 rounded-2xl border border-red-100">
-            <p id="error-message" class="text-red-800 font-medium mb-4 text-sm">Database synchronization failed.</p>
-            <button onclick="window.location.reload()" class="px-6 py-2 bg-black text-white text-[9px] font-black uppercase tracking-widest hover:bg-gray-800 transition-all rounded">
-                Retry
-            </button>
-        </div>
-
         <!-- Archive Content -->
         <div id="questions-container" class="space-y-0 min-h-[50vh]"></div>
 
@@ -203,140 +163,45 @@
         </div>
     </footer>
 
-    <!-- Firebase Scripts -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, deleteDoc, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // Environment globals
-        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const initialToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-
-        let currentUser = null;
-        let allQuestions = [];
-        let readStatusFingerprints = new Set(); // Using text fingerprints for stability
-        let unsubFirestore = null;
-
+    <script>
         const DATA_URL = 'https://raw.githubusercontent.com/citecase/q/refs/heads/main/q.md';
+        let allQuestions = [];
 
+        // Configure marked
         const renderer = new marked.Renderer();
         renderer.link = (href, title, text) => text || '';
         marked.setOptions({ renderer });
 
-        // Generate a stable fingerprint from question text
-        const getFingerprint = (text) => {
-            // Take first 100 chars, remove special characters, and hash slightly for a clean ID
-            const base = text.trim().substring(0, 100).replace(/[^a-zA-Z0-9]/g, '');
-            return base || 'empty_question';
-        };
-
-        window.toggleReadStatus = async (fingerprint) => {
-            if (!currentUser) return;
-            
-            const docRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'readStatus', fingerprint);
-
-            try {
-                if (readStatusFingerprints.has(fingerprint)) {
-                    await deleteDoc(docRef);
-                } else {
-                    await setDoc(docRef, { 
-                        timestamp: Date.now(),
-                        fingerprint: fingerprint 
-                    });
-                }
-            } catch (e) {
-                console.error("Sync write failed", e);
-            }
-        };
-
         async function init() {
-            // Speed Optimization: Parallelize data fetch and auth
-            const dataPromise = fetch(DATA_URL).then(res => res.text());
-            
-            const authAction = (async () => {
-                try {
-                    if (initialToken) {
-                        await signInWithCustomToken(auth, initialToken);
-                    } else {
-                        await signInAnonymously(auth);
-                    }
-                } catch (e) {
-                    console.warn("Auth background failed", e);
-                }
-            })();
-
-            onAuthStateChanged(auth, (user) => {
-                currentUser = user;
-                if (user) {
-                    setupFirestoreListener(user.uid);
-                    document.getElementById('sync-indicator').classList.remove('bg-gray-200');
-                    document.getElementById('sync-indicator').classList.add('bg-blue-400');
-                }
-            });
-
             try {
-                const text = await dataPromise;
-                parseQuestions(text);
+                const response = await fetch(DATA_URL);
+                if (!response.ok) throw new Error('Network Failure');
+                const text = await response.text();
                 
-                // Content ready
+                const sections = text.split(/(?=^\s*[\-\*\u2022]\s+)/m)
+                    .map(s => s.trim())
+                    .filter(s => s.length > 0);
+
+                allQuestions = sections.map((section, index) => {
+                    const urlMatch = section.match(/\[.*?\]\((https?:\/\/.*?)\)|(https?:\/\/[^\s\)]+)/);
+                    const url = urlMatch ? (urlMatch[1] || urlMatch[2]) : null;
+                    const cleanContent = section.replace(/^[\-\*\u2022]\s+/, '');
+
+                    return {
+                        id: index,
+                        raw: section,
+                        url: url,
+                        html: marked.parse(cleanContent)
+                    };
+                });
+                
                 document.getElementById('loading-state').style.display = 'none';
                 updateUI();
-                
-                await authAction;
             } catch (err) {
                 document.getElementById('loading-state').style.display = 'none';
-                document.getElementById('error-state').classList.remove('hidden');
-                document.getElementById('error-message').textContent = `System Load Error: ${err.message}`;
+                const container = document.getElementById('questions-container');
+                container.innerHTML = `<div class="py-20 text-center text-red-400 font-medium">Failed to load archive: ${err.message}</div>`;
             }
-        }
-
-        function setupFirestoreListener(userId) {
-            if (unsubFirestore) unsubFirestore();
-            
-            const statusCol = collection(db, 'artifacts', appId, 'users', userId, 'readStatus');
-            
-            unsubFirestore = onSnapshot(statusCol, (snapshot) => {
-                const fingerprints = new Set();
-                snapshot.forEach(doc => {
-                    // Use the document ID itself as the fingerprint
-                    fingerprints.add(doc.id);
-                });
-                readStatusFingerprints = fingerprints;
-                updateUI();
-                
-                // Visual sync feedback
-                document.getElementById('sync-indicator').classList.remove('animate-pulse');
-                document.getElementById('sync-indicator').classList.replace('bg-blue-400', 'bg-green-500');
-            }, (error) => {
-                console.error("Sync connection lost", error);
-                document.getElementById('sync-indicator').classList.replace('bg-blue-400', 'bg-red-400');
-            });
-        }
-
-        function parseQuestions(text) {
-            const sections = text.split(/(?=^\s*[\-\*\u2022]\s+)/m)
-                .map(s => s.trim())
-                .filter(s => s.length > 0);
-
-            allQuestions = sections.map((section, index) => {
-                const urlMatch = section.match(/\[.*?\]\((https?:\/\/.*?)\)|(https?:\/\/[^\s\)]+)/);
-                const url = urlMatch ? (urlMatch[1] || urlMatch[2]) : null;
-                const cleanContent = section.replace(/^[\-\*\u2022]\s+/, '');
-
-                return {
-                    id: index,
-                    raw: section,
-                    fingerprint: getFingerprint(cleanContent),
-                    url: url,
-                    html: marked.parse(cleanContent)
-                };
-            });
         }
 
         function updateUI() {
@@ -357,34 +222,23 @@
             } else {
                 emptyState.classList.add('hidden');
                 container.innerHTML = filtered.map((q) => {
-                    const isRead = readStatusFingerprints.has(q.fingerprint);
-                    
-                    const actionButtons = `
-                        ${q.url ? `
+                    const actionButton = q.url ? `
                         <a href="${q.url}" target="_blank" rel="noopener noreferrer" class="action-button case-button">
                             Read CaseLaw
                             <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
-                        </a>` : ''}
-                        <button onclick="toggleReadStatus('${q.fingerprint}')" class="action-button status-button ${isRead ? 'active' : ''}">
-                            ${isRead ? 'Read' : 'Read?'}
-                            ${isRead ? 
-                                `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>` : 
-                                `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle></svg>`
-                            }
-                        </button>
-                    `;
+                        </a>` : '';
                     
                     let content = q.html.trim();
                     if (content.endsWith('</p>')) {
-                        content = content.replace(/<\/p>$/, `${actionButtons}</p>`);
+                        content = content.replace(/<\/p>$/, `${actionButton}</p>`);
                     } else if (content.endsWith('</li>')) {
-                        content = content.replace(/<\/li>$/, `${actionButtons}</li>`);
+                        content = content.replace(/<\/li>$/, `${actionButton}</li>`);
                     } else {
-                        content = content + actionButtons;
+                        content = content + actionButton;
                     }
 
                     return `
-                        <article class="entry-container ${isRead ? 'is-read' : ''}">
+                        <article class="entry-container">
                             <div class="prose legal-prose max-w-none">
                                 ${content}
                             </div>
