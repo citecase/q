@@ -1,0 +1,5 @@
+# Spreadsheet Data
+
+| Submission ID   | Respondent ID   | Submitted at       | Untitled long answer field                                                                                                                                                                                                                                                                      | Untitled short answer field   |
+|:----------------|:----------------|:-------------------|:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:------------------------------|
+| OD6v5ok         | ZjdWZEB         | 2026-02-04 7:49:31 | When a marriage breaks down, does the maintenance obligation of the husband come to an end merely on the ground that wife is educated or has parental support? [Anamika Jain vs Atul Jain]  https://www.caseciter.com/anamika-jain-v-atul-jain-matrimonial-maintenance-educated-wife/#gsc.tab=0 | amk                           |
