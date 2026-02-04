@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CiteCase | Questions Of Law</title>
+    <title>CiteCase | Legal Knowledge Base</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Fonts: Lora for legal text, Inter for UI -->
@@ -89,8 +89,20 @@
             transform: translateY(-1px);
         }
 
-        /* Global Header Share Button */
-        .global-share-btn {
+        .search-container {
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            transition: all 0.2s ease;
+        }
+
+        .search-container:focus-within {
+            border-color: #000;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+
+        /* Global Header Submit Button */
+        .header-submit-btn {
             margin-top: 12px;
             padding: 6px 16px;
             background: #000;
@@ -103,26 +115,37 @@
             transition: all 0.2s ease;
         }
 
-        .global-share-btn:hover {
+        .header-submit-btn:hover {
             background: #333;
             transform: translateY(-1px);
         }
 
-        /* Modal Styles */
-        #tally-modal {
+        /* Modal Backdrop */
+        #modal-overlay {
             display: none;
             position: fixed;
             inset: 0;
-            z-index: 1000;
             background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(4px);
+            backdrop-filter: blur(8px);
+            z-index: 1000;
             align-items: center;
             justify-content: center;
-            padding: 1rem;
+            padding: 20px;
         }
 
-        #tally-modal.active {
+        #modal-overlay.active {
             display: flex;
+        }
+
+        #modal-content {
+            width: 100%;
+            max-width: 600px;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.1);
+            position: relative;
+            overflow: hidden;
+            border: 1px solid #f3f4f6;
         }
 
         @keyframes infinite-scroll {
@@ -147,11 +170,11 @@
                 <span class="text-[10px] uppercase tracking-[0.4em] font-black text-gray-400">
                     Questions Of Law
                 </span>
-                
-                <!-- Share Question Button below subtitle -->
-                <button onclick="toggleTallyModal()" class="global-share-btn flex items-center gap-2">
-                    Share Question
-                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><polyline points="16 6 12 2 8 6"></polyline><line x1="12" y1="2" x2="12" y2="15"></line></svg>
+
+                <!-- Submit Button in Header -->
+                <button onclick="openModal()" class="header-submit-btn flex items-center gap-2">
+                    Submit Question
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
                 </button>
 
                 <p id="result-count" class="text-[9px] font-bold text-gray-300 uppercase tracking-widest italic mt-3"></p>
@@ -159,20 +182,32 @@
         </div>
     </header>
 
-    <!-- Tally Modal (Pop-up) -->
-    <div id="tally-modal" onclick="closeModal(event)">
-        <div class="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden relative border border-gray-100" onclick="event.stopPropagation()">
-            <button onclick="toggleTallyModal()" class="absolute top-4 right-4 text-gray-400 hover:text-black z-10 transition-colors">
+    <!-- Modal Backdrop -->
+    <div id="modal-overlay" onclick="closeModal(event)">
+        <div id="modal-content" onclick="event.stopPropagation()">
+            <button onclick="closeModal()" class="absolute top-4 right-4 text-gray-400 hover:text-black transition-colors z-10">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
             </button>
-            <div class="p-2">
-                <iframe id="tally-iframe" data-tally-src="https://tally.so/embed/Zjagy0?alignLeft=1&hideTitle=1&transparentBackground=1&dynamicHeight=1" loading="lazy" width="100%" height="500" frameborder="0" marginheight="0" marginwidth="0" title="Share Questions Of Law"></iframe>
+            <div class="pt-10 pb-4 px-2">
+                <iframe id="tally-iframe" data-tally-src="https://tally.so/embed/Zjagy0?alignLeft=1&hideTitle=1&transparentBackground=1&dynamicHeight=1" loading="lazy" width="100%" height="450" frameborder="0" marginheight="0" marginwidth="0" title="Share Questions Of Law"></iframe>
             </div>
         </div>
     </div>
 
     <main class="max-w-3xl mx-auto px-6 pt-12 pb-20">
-        
+        <!-- Search Tool -->
+        <div class="mb-10">
+            <div class="search-container relative flex items-center px-4 py-0.5">
+                <svg class="text-gray-400 shrink-0" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                <input
+                    type="text"
+                    id="search-input"
+                    placeholder="Search Questions Of Law..."
+                    class="w-full py-3 px-3 bg-transparent outline-none text-base font-medium placeholder:text-gray-300 text-black"
+                />
+            </div>
+        </div>
+
         <!-- Minimal Loading Bar -->
         <div id="loading-state" class="h-0.5 w-full bg-gray-50 overflow-hidden mb-8">
             <div class="bg-black h-full animate-infinite-scroll w-1/3"></div>
@@ -180,6 +215,10 @@
 
         <!-- Archive Content -->
         <div id="questions-container" class="space-y-0 min-h-[50vh]"></div>
+
+        <div id="empty-state" class="hidden text-center py-20 border-2 border-dashed border-gray-50 rounded-2xl">
+            <p class="text-gray-300 font-medium italic">No entries match your search.</p>
+        </div>
     </main>
 
     <footer class="py-12 border-t border-gray-50 bg-white">
@@ -193,28 +232,28 @@
     <!-- Tally Widget Script -->
     <script>
         var d=document,w="https://tally.so/widgets/embed.js",v=function(){"undefined"!=typeof Tally?Tally.loadEmbeds():d.querySelectorAll("iframe[data-tally-src]:not([src])").forEach((function(e){e.src=e.dataset.tallySrc}))};if("undefined"!=typeof Tally)v();else if(d.querySelector('script[src="'+w+'"]')==null){var s=d.createElement("script");s.src=w,s.onload=v,s.onerror=v,d.body.appendChild(s);}
-        
-        function toggleTallyModal() {
-            const modal = document.getElementById('tally-modal');
+
+        // Modal Logic
+        function openModal() {
+            const overlay = document.getElementById('modal-overlay');
             const iframe = document.getElementById('tally-iframe');
-            
-            modal.classList.toggle('active');
-            
-            // Ensure Tally loads when opened
-            if (modal.classList.contains('active') && !iframe.src) {
+            overlay.classList.add('active');
+            if (!iframe.src) {
                 iframe.src = iframe.dataset.tallySrc;
             }
+            document.body.style.overflow = 'hidden'; // Prevent scroll
         }
 
         function closeModal(e) {
-            document.getElementById('tally-modal').classList.remove('active');
+            const overlay = document.getElementById('modal-overlay');
+            overlay.classList.remove('active');
+            document.body.style.overflow = ''; // Restore scroll
         }
     </script>
 
     <script>
         const Q_URL = 'https://raw.githubusercontent.com/citecase/q/refs/heads/main/q.md';
         const DATA_URL = 'https://raw.githubusercontent.com/citecase/q/refs/heads/main/data.md';
-        
         let allQuestions = [];
 
         const renderer = new marked.Renderer();
@@ -244,62 +283,67 @@
                     for (let i = 2; i < dataRows.length; i++) {
                         const columns = dataRows[i].split('|').map(c => c.trim());
                         const content = columns[4] || columns[3]; 
-                        if (content && content !== '---') {
+                        if (content && content !== '---' && content !== 'Untitled long answer field') {
                             const urlMatch = content.match(/\[.*?\]\((https?:\/\/.*?)\)|(https?:\/\/[^\s\)]+)/);
                             const url = urlMatch ? (urlMatch[1] || urlMatch[2]) : null;
                             const cleanContent = content.replace(/\[.*?\]\((https?:\/\/.*?)\)|(https?:\/\/[^\s\)]+)/g, '').trim();
-                            dataSections.push({
-                                raw: content,
-                                url: url,
-                                html: marked.parse(cleanContent)
-                            });
+                            dataSections.push({ raw: content, url, html: marked.parse(cleanContent) });
                         }
                     }
                 }
 
-                allQuestions = [...qSections, ...dataSections];
+                allQuestions = [...dataSections.reverse(), ...qSections];
                 document.getElementById('loading-state').style.display = 'none';
                 updateUI();
             } catch (err) {
                 document.getElementById('loading-state').style.display = 'none';
                 console.error(err);
-                const container = document.getElementById('questions-container');
-                container.innerHTML = `<div class="py-20 text-center text-red-400 font-medium">Failed to load archive.</div>`;
             }
         }
 
         function updateUI() {
+            const searchTerm = (document.getElementById('search-input')?.value || '').toLowerCase();
             const container = document.getElementById('questions-container');
             const resultCount = document.getElementById('result-count');
+            const emptyState = document.getElementById('empty-state');
             
-            if (resultCount) resultCount.textContent = `${allQuestions.length} Questions Available`;
+            const filtered = allQuestions.filter(q => 
+                q.raw.toLowerCase().includes(searchTerm)
+            );
 
-            container.innerHTML = allQuestions.map((q) => {
-                const actionButtons = `
-                    ${q.url ? `
-                    <a href="${q.url}" target="_blank" rel="noopener noreferrer" class="action-button case-button">
-                        Read CaseLaw
-                        <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
-                    </a>` : ''}
-                `;
-                
-                let content = q.html.trim();
-                if (content.endsWith('</p>')) {
-                    content = content.replace(/<\/p>$/, `${actionButtons}</p>`);
-                } else {
-                    content = content + actionButtons;
-                }
+            if (resultCount) resultCount.textContent = `${filtered.length} Questions Available`;
 
-                return `
-                    <article class="entry-container">
-                        <div class="prose legal-prose max-w-none">
-                            ${content}
-                        </div>
-                    </article>
-                `;
-            }).join('');
+            if (filtered.length === 0 && allQuestions.length > 0) {
+                container.innerHTML = '';
+                emptyState.classList.remove('hidden');
+            } else {
+                emptyState.classList.add('hidden');
+                container.innerHTML = filtered.map((q) => {
+                    const actionButton = q.url ? `
+                        <a href="${q.url}" target="_blank" rel="noopener noreferrer" class="action-button case-button">
+                            Read CaseLaw
+                            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                        </a>` : '';
+                    
+                    let content = q.html.trim();
+                    if (content.endsWith('</p>')) {
+                        content = content.replace(/<\/p>$/, `${actionButton}</p>`);
+                    } else {
+                        content = content + actionButton;
+                    }
+
+                    return `
+                        <article class="entry-container">
+                            <div class="prose legal-prose max-w-none">
+                                ${content}
+                            </div>
+                        </article>
+                    `;
+                }).join('');
+            }
         }
 
+        document.getElementById('search-input')?.addEventListener('input', updateUI);
         init();
     </script>
 </body>
