@@ -124,13 +124,18 @@
             border-color: #000;
             box-shadow: 0 4px 12px rgba(0,0,0,0.05);
         }
+
+        /* Sync Indicator */
+        #sync-indicator {
+            transition: opacity 0.5s ease;
+        }
     </style>
 </head>
 <body class="selection:bg-slate-900 selection:text-white">
 
     <!-- Header Section -->
     <header class="bg-white border-b border-gray-50 sticky top-0 z-50 shadow-sm py-4">
-        <div class="max-w-4xl mx-auto px-6 flex flex-col items-center justify-center">
+        <div class="max-w-4xl mx-auto px-6 flex flex-col items-center justify-center relative">
             <div class="flex items-center group cursor-default">
                 <span class="text-3xl font-black tracking-tighter text-black px-1">CITE</span>
                 <span class="text-3xl font-black tracking-tighter bg-black text-white px-2 py-0.5 rounded-sm">CASE</span>
@@ -139,7 +144,10 @@
                 <span class="text-[10px] uppercase tracking-[0.4em] font-black text-gray-400">
                     Questions Of Law
                 </span>
-                <p id="result-count" class="text-[9px] font-bold text-gray-300 uppercase tracking-widest italic mt-1"></p>
+                <div class="flex items-center gap-2 mt-1">
+                    <p id="result-count" class="text-[9px] font-bold text-gray-300 uppercase tracking-widest italic"></p>
+                    <div id="sync-indicator" class="w-1.5 h-1.5 rounded-full bg-gray-200 animate-pulse"></div>
+                </div>
             </div>
         </div>
     </header>
@@ -158,10 +166,9 @@
             </div>
         </div>
 
-        <!-- Loading State -->
-        <div id="loading-state" class="flex flex-col items-center justify-center py-16">
-            <div class="w-8 h-8 border-2 border-gray-100 border-t-black rounded-full animate-spin"></div>
-            <p class="mt-4 text-[9px] font-black uppercase tracking-[0.3em] text-gray-300">Synchronizing Archive</p>
+        <!-- Minimal Loading Bar (Visible only during initial burst) -->
+        <div id="loading-state" class="h-0.5 w-full bg-gray-50 overflow-hidden mb-8">
+            <div class="bg-black h-full animate-infinite-scroll w-1/3"></div>
         </div>
 
         <!-- Error State -->
@@ -173,7 +180,7 @@
         </div>
 
         <!-- Archive Content -->
-        <div id="questions-container" class="space-y-0"></div>
+        <div id="questions-container" class="space-y-0 min-h-[50vh]"></div>
 
         <div id="empty-state" class="hidden text-center py-20 border-2 border-dashed border-gray-50 rounded-2xl">
             <p class="text-gray-300 font-medium italic">No entries match your search.</p>
@@ -188,13 +195,22 @@
         </div>
     </footer>
 
+    <style>
+        @keyframes infinite-scroll {
+            from { transform: translateX(-100%); }
+            to { transform: translateX(300%); }
+        }
+        .animate-infinite-scroll {
+            animation: infinite-scroll 1.5s infinite linear;
+        }
+    </style>
+
     <!-- Firebase Scripts -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDocs, setDoc, deleteDoc, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, setDoc, deleteDoc, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Global config variables provided by environment
         const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         const initialToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
@@ -210,91 +226,91 @@
 
         const DATA_URL = 'https://raw.githubusercontent.com/citecase/q/refs/heads/main/q.md';
 
-        // Configure marked to strip original links for our custom inline buttons
         const renderer = new marked.Renderer();
         renderer.link = (href, title, text) => text || '';
         marked.setOptions({ renderer });
 
-        // Initialize progress toggle function
         window.toggleReadStatus = async (index) => {
             if (!currentUser) return;
-            
             const q = allQuestions[index];
             if (!q) return;
 
-            // Generate a unique identifier for the question based on its text
             const qId = btoa(q.raw.substring(0, 50)).replace(/[/+=]/g, '_');
             const docRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'readStatus', qId);
 
-            if (readStatus.has(index)) {
-                await deleteDoc(docRef);
-            } else {
-                await setDoc(docRef, { 
-                    timestamp: Date.now(),
-                    index: index 
-                });
+            try {
+                if (readStatus.has(index)) {
+                    await deleteDoc(docRef);
+                } else {
+                    await setDoc(docRef, { timestamp: Date.now(), index: index });
+                }
+            } catch (e) {
+                console.error("Read status update failed", e);
             }
         };
 
-        // Initialize Auth and Data
         async function init() {
-            // Optimization: Start fetching data and auth in parallel
-            const dataPromise = fetch(DATA_URL).then(res => {
-                if (!res.ok) throw new Error('Network Failure');
-                return res.text();
-            });
-
-            const authPromise = (async () => {
-                if (initialToken) {
-                    return signInWithCustomToken(auth, initialToken);
-                } else {
-                    return signInAnonymously(auth);
+            // Speed Strategy: Start data fetch immediately. Do NOT wait for Auth to show content.
+            const dataPromise = fetch(DATA_URL).then(res => res.text());
+            
+            // Background Auth
+            const authAction = (async () => {
+                try {
+                    if (initialToken) {
+                        await signInWithCustomToken(auth, initialToken);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                } catch (e) {
+                    console.warn("Auth background failed", e);
                 }
             })();
 
-            try {
-                // Listen for auth changes separately
-                onAuthStateChanged(auth, (user) => {
-                    currentUser = user;
-                    if (user) {
-                        setupFirestoreListener(user.uid);
-                    }
-                });
+            onAuthStateChanged(auth, (user) => {
+                currentUser = user;
+                if (user) {
+                    setupFirestoreListener(user.uid);
+                    document.getElementById('sync-indicator').classList.remove('bg-gray-200');
+                    document.getElementById('sync-indicator').classList.add('bg-blue-400');
+                }
+            });
 
-                // Wait for markdown data first to show content ASAP
+            try {
                 const text = await dataPromise;
                 parseQuestions(text);
                 
-                // Hide loader immediately once content is ready
-                document.getElementById('loading-state').classList.add('hidden');
+                // Content is ready, show it now
+                document.getElementById('loading-state').style.display = 'none';
                 updateUI();
-
-                // Ensure auth is also handled
-                await authPromise;
+                
+                // Auth completes later in the background
+                await authAction;
             } catch (err) {
-                document.getElementById('loading-state').classList.add('hidden');
+                document.getElementById('loading-state').style.display = 'none';
                 document.getElementById('error-state').classList.remove('hidden');
-                document.getElementById('error-message').textContent = `System Error: ${err.message}`;
+                document.getElementById('error-message').textContent = `Load Error: ${err.message}`;
             }
         }
 
         function setupFirestoreListener(userId) {
             if (unsubFirestore) unsubFirestore();
-            
             const statusCol = collection(db, 'artifacts', appId, 'users', userId, 'readStatus');
             
             unsubFirestore = onSnapshot(statusCol, (snapshot) => {
                 const readIds = new Set();
                 snapshot.forEach(doc => {
                     const data = doc.data();
-                    if (typeof data.index === 'number') {
-                        readIds.add(data.index);
-                    }
+                    if (typeof data.index === 'number') readIds.add(data.index);
                 });
                 readStatus = readIds;
                 updateUI();
+                
+                // Turn off pulse once sync is finished
+                document.getElementById('sync-indicator').classList.remove('animate-pulse');
+                document.getElementById('sync-indicator').classList.replace('bg-blue-400', 'bg-green-500');
             }, (error) => {
-                console.error("Firestore error:", error);
+                console.error("Sync error:", error);
+                document.getElementById('sync-indicator').classList.replace('bg-blue-400', 'bg-red-400');
             });
         }
 
@@ -329,7 +345,7 @@
 
             resultCount.textContent = `${filtered.length} Questions Available`;
 
-            if (filtered.length === 0) {
+            if (filtered.length === 0 && allQuestions.length > 0) {
                 container.innerHTML = '';
                 emptyState.classList.remove('hidden');
             } else {
