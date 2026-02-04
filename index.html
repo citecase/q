@@ -89,6 +89,41 @@
             transform: translateY(-1px);
         }
 
+        .interaction-button {
+            background-color: #ffffff;
+            color: #64748b;
+            border: 1px solid #e2e8f0;
+        }
+
+        .interaction-button:hover:not(:disabled) {
+            border-color: #000;
+            color: #000;
+            background-color: #f8fafc;
+        }
+
+        .interaction-button.voted {
+            background-color: #f8fafc;
+            border-color: #000;
+            color: #000;
+        }
+
+        .interaction-button:disabled {
+            opacity: 0.7;
+            cursor: default;
+        }
+
+        .search-container {
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            transition: all 0.2s ease;
+        }
+
+        .search-container:focus-within {
+            border-color: #000;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+
         @keyframes infinite-scroll {
             from { transform: translateX(-100%); }
             to { transform: translateX(300%); }
@@ -117,9 +152,23 @@
     </header>
 
     <main class="max-w-3xl mx-auto px-6 pt-8 pb-20">
-        <!-- Tally Form Embed matched with background -->
-        <div class="mb-10 overflow-hidden bg-transparent">
+        
+        <!-- Tally Form Embed -->
+        <div class="mb-6 overflow-hidden bg-transparent">
             <iframe data-tally-src="https://tally.so/embed/Zjagy0?alignLeft=1&hideTitle=1&transparentBackground=1&dynamicHeight=1" loading="lazy" width="100%" height="341" frameborder="0" marginheight="0" marginwidth="0" title="Share Questions Of Law"></iframe>
+        </div>
+
+        <!-- Search Tool -->
+        <div class="mb-10">
+            <div class="search-container relative flex items-center px-4 py-0.5">
+                <svg class="text-gray-400 shrink-0" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                <input
+                    type="text"
+                    id="search-input"
+                    placeholder="Search archive..."
+                    class="w-full py-3 px-3 bg-transparent outline-none text-base font-medium placeholder:text-gray-300 text-black"
+                />
+            </div>
         </div>
 
         <!-- Minimal Loading Bar -->
@@ -129,6 +178,10 @@
 
         <!-- Archive Content -->
         <div id="questions-container" class="space-y-0 min-h-[50vh]"></div>
+
+        <div id="empty-state" class="hidden text-center py-20 border-2 border-dashed border-gray-50 rounded-2xl">
+            <p class="text-gray-300 font-medium italic">No entries match your search.</p>
+        </div>
     </main>
 
     <footer class="py-12 border-t border-gray-50 bg-white">
@@ -139,72 +192,155 @@
         </div>
     </footer>
 
-    <!-- Tally Widget Script -->
-    <script>
-        var d=document,w="https://tally.so/widgets/embed.js",v=function(){"undefined"!=typeof Tally?Tally.loadEmbeds():d.querySelectorAll("iframe[data-tally-src]:not([src])").forEach((function(e){e.src=e.dataset.tallySrc}))};if("undefined"!=typeof Tally)v();else if(d.querySelector('script[src="'+w+'"]')==null){var s=d.createElement("script");s.src=w,s.onload=v,s.onerror=v,d.body.appendChild(s);}
-    </script>
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, updateDoc, increment, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-    <script>
-        const DATA_URL = 'https://raw.githubusercontent.com/citecase/q/refs/heads/main/q.md';
+        // Global config
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const initialToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        const Q_URL = 'https://raw.githubusercontent.com/citecase/q/refs/heads/main/q.md';
+        const DATA_URL = 'https://raw.githubusercontent.com/citecase/q/refs/heads/main/data.md';
+        
         let allQuestions = [];
+        let interactionCounts = {}; // fingerprint -> likes count
+        let userInteractions = new Set(); // fingerprint (track if already liked)
 
-        // Configure marked
         const renderer = new marked.Renderer();
         renderer.link = (href, title, text) => text || '';
         marked.setOptions({ renderer });
 
-        async function init() {
+        // Stable ID generation
+        const getFingerprint = (text) => {
+            const clean = text.trim().substring(0, 120).replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+            return clean || 'empty_entry';
+        };
+
+        window.handleInteraction = async (fingerprint) => {
+            if (userInteractions.has(fingerprint)) return;
+            
+            // Optimistic update
+            userInteractions.add(fingerprint);
+            interactionCounts[fingerprint] = (interactionCounts[fingerprint] || 0) + 1;
+            
+            updateUI();
+
             try {
-                const response = await fetch(DATA_URL);
-                if (!response.ok) throw new Error('Network Failure');
-                const text = await response.text();
-                
-                const sections = text.split(/(?=^\s*[\-\*\u2022]\s+)/m)
-                    .map(s => s.trim())
-                    .filter(s => s.length > 0);
+                const voteDoc = doc(db, 'artifacts', appId, 'public', 'data', 'interactions', fingerprint);
+                await setDoc(voteDoc, { likes: increment(1) }, { merge: true });
+            } catch (e) {
+                console.error("Interaction failed", e);
+            }
+        };
 
-                allQuestions = sections.map((section, index) => {
-                    const urlMatch = section.match(/\[.*?\]\((https?:\/\/.*?)\)|(https?:\/\/[^\s\)]+)/);
-                    const url = urlMatch ? (urlMatch[1] || urlMatch[2]) : null;
-                    const cleanContent = section.replace(/^[\-\*\u2022]\s+/, '');
+        async function init() {
+            // Priority 1: Auth
+            try {
+                if (initialToken) await signInWithCustomToken(auth, initialToken);
+                else await signInAnonymously(auth);
+            } catch(e) { console.warn("Auth backgrounded"); }
 
-                    return {
-                        id: index,
-                        raw: section,
-                        url: url,
-                        html: marked.parse(cleanContent)
-                    };
+            // Priority 2: Sync Interactions (Public collection - Rule 1)
+            const interactionsCol = collection(db, 'artifacts', appId, 'public', 'data', 'interactions');
+            onSnapshot(interactionsCol, (snapshot) => {
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    interactionCounts[doc.id] = data.likes || 0;
                 });
+                updateUI();
+            });
+
+            // Priority 3: Fetch Questions
+            try {
+                const [qRes, dataRes] = await Promise.all([
+                    fetch(Q_URL).then(res => res.text()),
+                    fetch(DATA_URL).then(res => res.text())
+                ]);
                 
+                const qSections = qRes.split(/(?=^\s*[\-\*\u2022]\s+)/m)
+                    .map(s => s.trim())
+                    .filter(s => s.length > 0)
+                    .map(section => {
+                        const urlMatch = section.match(/\[.*?\]\((https?:\/\/.*?)\)|(https?:\/\/[^\s\)]+)/);
+                        const url = urlMatch ? (urlMatch[1] || urlMatch[2]) : null;
+                        const cleanContent = section.replace(/^[\-\*\u2022]\s+/, '');
+                        return { raw: section, fingerprint: getFingerprint(cleanContent), url, html: marked.parse(cleanContent) };
+                    });
+
+                const dataRows = dataRes.split('\n').filter(row => row.includes('|'));
+                const dataSections = [];
+                if (dataRows.length > 2) {
+                    for (let i = 2; i < dataRows.length; i++) {
+                        const columns = dataRows[i].split('|').map(c => c.trim());
+                        const content = columns[4] || columns[3]; 
+                        if (content && content !== '---') {
+                            const urlMatch = content.match(/\[.*?\]\((https?:\/\/.*?)\)|(https?:\/\/[^\s\)]+)/);
+                            const url = urlMatch ? (urlMatch[1] || urlMatch[2]) : null;
+                            const cleanContent = content.replace(/\[.*?\]\((https?:\/\/.*?)\)|(https?:\/\/[^\s\)]+)/g, '').trim();
+                            dataSections.push({
+                                raw: content,
+                                fingerprint: getFingerprint(cleanContent),
+                                url: url,
+                                html: marked.parse(cleanContent)
+                            });
+                        }
+                    }
+                }
+
+                allQuestions = [...qSections, ...dataSections];
                 document.getElementById('loading-state').style.display = 'none';
                 updateUI();
             } catch (err) {
                 document.getElementById('loading-state').style.display = 'none';
-                const container = document.getElementById('questions-container');
-                container.innerHTML = `<div class="py-20 text-center text-red-400 font-medium">Failed to load archive: ${err.message}</div>`;
+                console.error(err);
             }
         }
 
         function updateUI() {
+            const searchTerm = (document.getElementById('search-input')?.value || '').toLowerCase();
             const container = document.getElementById('questions-container');
             const resultCount = document.getElementById('result-count');
             
-            resultCount.textContent = `${allQuestions.length} Questions Available`;
+            const filtered = allQuestions.filter(q => 
+                q.raw.toLowerCase().includes(searchTerm)
+            );
 
-            container.innerHTML = allQuestions.map((q) => {
-                const actionButton = q.url ? `
+            if (resultCount) resultCount.textContent = `${filtered.length} Questions Available`;
+
+            container.innerHTML = filtered.map((q) => {
+                const likes = interactionCounts[q.fingerprint] || 0;
+                const hasVoted = userInteractions.has(q.fingerprint);
+                
+                const actionButtons = `
+                    ${q.url ? `
                     <a href="${q.url}" target="_blank" rel="noopener noreferrer" class="action-button case-button">
                         Read CaseLaw
                         <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
-                    </a>` : '';
+                    </a>` : ''}
+                    
+                    <button 
+                        onclick="handleInteraction('${q.fingerprint}')" 
+                        class="action-button interaction-button ${hasVoted ? 'voted' : ''}"
+                        ${hasVoted ? 'disabled' : ''}
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="mr-1.5"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path></svg>
+                        ${likes > 0 ? likes : 'Like'}
+                    </button>
+                `;
                 
                 let content = q.html.trim();
                 if (content.endsWith('</p>')) {
-                    content = content.replace(/<\/p>$/, `${actionButton}</p>`);
-                } else if (content.endsWith('</li>')) {
-                    content = content.replace(/<\/li>$/, `${actionButton}</li>`);
+                    content = content.replace(/<\/p>$/, `${actionButtons}</p>`);
                 } else {
-                    content = content + actionButton;
+                    content = content + actionButtons;
                 }
 
                 return `
@@ -217,6 +353,10 @@
             }).join('');
         }
 
+        // Tally Widget Helper
+        var d=document,w="https://tally.so/widgets/embed.js",v=function(){"undefined"!=typeof Tally?Tally.loadEmbeds():d.querySelectorAll("iframe[data-tally-src]:not([src])").forEach((function(e){e.src=e.dataset.tallySrc}))};if("undefined"!=typeof Tally)v();else if(d.querySelector('script[src="'+w+'"]')==null){var s=d.createElement("script");s.src=w,s.onload=v,s.onerror=v,d.body.appendChild(s);}
+
+        document.getElementById('search-input').addEventListener('input', updateUI);
         init();
     </script>
 </body>
